@@ -8,7 +8,7 @@ import einops
 import torch
 from torch import nn, Tensor
 import torch.nn.functional as F
-
+from mamba_ssm.modules.mamba_simple import Mamba
 
 def _get_activation_fn(activation):
     """Return an activation function given a string"""
@@ -168,12 +168,22 @@ class TransformerSpatialDecoderLayer(TransformerDecoderLayer):
             d_model, nhead, dim_feedforward=dim_feedforward, dropout=dropout, activation=activation
         )
         del self.self_attn
-        self.self_attn = MultiHeadAttentionSpatial(
-            d_model, nhead, dropout=dropout, 
-            spatial_multihead=spatial_multihead, 
-            spatial_dim=spatial_dim,
-            spatial_attn_fusion=spatial_attn_fusion,
-        )
+        # self.self_attn = MultiHeadAttentionSpatial(
+        #     d_model, nhead, dropout=dropout, 
+        #     spatial_multihead=spatial_multihead, 
+        #     spatial_dim=spatial_dim,
+        #     spatial_attn_fusion=spatial_attn_fusion,
+        # )
+        self.mamba_head = 8
+        self.mamba_q = Mamba(d_model)
+        self.mamba_attn = Mamba(d_model)
+        self.lang_cond_fc = nn.Linear(d_model, self.mamba_head * (5 + 1))
+        self.w_ks = nn.Linear(d_model, d_model)
+        # self.w_qs = nn.Linear(d_model, d_model)
+
+        '''  多方向Mamba  '''
+        # self.mamba_permute1 = Mamba(d_model)
+        # self.mamba_permute2 = Mamba(d_model)
 
     def forward(
         self, tgt, memory, tgt_pairwise_locs,
@@ -183,14 +193,62 @@ class TransformerSpatialDecoderLayer(TransformerDecoderLayer):
         memory_key_padding_mask: Optional[Tensor] = None,
     ):
 
+        # tgt2 = self.norm1(tgt)
+        # tgt2, self_attn_matrices = self.self_attn(
+        #     tgt2, tgt2, tgt2, tgt_pairwise_locs,
+        #     key_padding_mask=tgt_key_padding_mask,
+        #     txt_embeds=memory[:, 0],
+        # )
+        # tgt = tgt + self.dropout1(tgt2)
+        # tgt2 = self.norm2(tgt)
+        # tgt2, cross_attn_matrices = self.multihead_attn(
+        #     query=tgt2, key=memory,
+        #     value=memory, attn_mask=memory_mask,
+        #     key_padding_mask=memory_key_padding_mask
+        # )
+        # tgt = tgt + self.dropout2(tgt2)
+        # tgt2 = self.norm3(tgt)
+        # tgt2 = self.linear2(self.dropout(self.activation(self.linear1(tgt2))))
+        # tgt = tgt + self.dropout3(tgt2)
+        # return tgt, self_attn_matrices, cross_attn_matrices
+
+
+
         tgt2 = self.norm1(tgt)
-        tgt2, self_attn_matrices = self.self_attn(
-            tgt2, tgt2, tgt2, tgt_pairwise_locs,
-            key_padding_mask=tgt_key_padding_mask,
-            txt_embeds=memory[:, 0],
-        )
+        tgt = tgt2
+        tgt2  = tgt2 + memory[:, 0].unsqueeze(1)
+        
+
+        '''  多方向Mamba '''
+        # tgt_permute1 = torch.flip(tgt2, dims=[1])
+        # tgt_permute2 = torch.flip(tgt2, dims=[2])
+        # tgt_permute1 = self.mamba_permute1(tgt_permute1)
+        # tgt_permute2 = self.mamba_permute1(tgt_permute2)
+        # tgt2 = tgt2 + tgt_permute1+ tgt_permute2
+
+        txt_embeds = memory[:, 0]
+        mamba_v = self.mamba_q(tgt2)
+        m_v = einops.rearrange(self.w_ks(mamba_v), 'b t (h k) -> h b t k', h=self.mamba_head) 
+
+        spatial_weights = self.lang_cond_fc(tgt + txt_embeds.unsqueeze(1))
+        spatial_weights = einops.rearrange(spatial_weights, 'b l (h d) -> h b l d', h=self.mamba_head, d=5+1)
+        spatial_bias = spatial_weights[..., :1]
+        spatial_weights = spatial_weights[..., 1:]
+        loc_attn = torch.einsum('hbld,bltd->hblt', spatial_weights, tgt_pairwise_locs) + spatial_bias
+
+        loc_attn = torch.einsum('hbll,hblk->hblk', loc_attn, m_v)
+        loc_attn = torch.sigmoid(loc_attn)
+
+        loc_attn = einops.rearrange(loc_attn, 'h b l k -> b l (h k)')
+
+        fused_attn = torch.log(torch.clamp(loc_attn, min=1e-6)) + mamba_v 
+
+        tgt2 = self.mamba_attn(fused_attn)
+        tgt2 = self.dropout1(tgt2) + fused_attn
+
+
         tgt = tgt + self.dropout1(tgt2)
-        tgt2 = self.norm2(tgt)
+        tgt2 = self.dropout1(tgt2)
         tgt2, cross_attn_matrices = self.multihead_attn(
             query=tgt2, key=memory,
             value=memory, attn_mask=memory_mask,
@@ -200,8 +258,7 @@ class TransformerSpatialDecoderLayer(TransformerDecoderLayer):
         tgt2 = self.norm3(tgt)
         tgt2 = self.linear2(self.dropout(self.activation(self.linear1(tgt2))))
         tgt = tgt + self.dropout3(tgt2)
-        return tgt, self_attn_matrices, cross_attn_matrices
-
+        return tgt2  # , self_attn_matrices, cross_attn_matrices
 
 class CMT(nn.Module):
 
@@ -317,34 +374,58 @@ class CMT(nn.Module):
         out_embeds = obj_embeds
         all_hidden_states = [out_embeds]
         all_self_attn_matrices, all_cross_attn_matrices = [], []
+
+        query_pos = self.loc_layers[0](obj_locs)
+        out_embeds = out_embeds + query_pos
         for i, layer in enumerate(self.layers):
             if self.config.obj_loc_encoding == 'diff_all':
                 query_pos = self.loc_layers[i](obj_locs)
                 out_embeds = out_embeds + query_pos
             else:
                 query_pos = self.loc_layers[0](obj_locs)
+
                 if self.config.obj_loc_encoding == 'same_all':
                     out_embeds = out_embeds + query_pos
                 else:
                     if i == 0:
                         out_embeds = out_embeds + query_pos
-
-            if self.config.spatial_dec:
-                out_embeds, self_attn_matrices, cross_attn_matrices = layer(
+            out_embeds = layer(
                     out_embeds, txt_embeds, pairwise_locs,
                     tgt_key_padding_mask=obj_masks.logical_not(),
                     memory_key_padding_mask=txt_masks.logical_not(),
-                )
-            else:
-                out_embeds, self_attn_matrices, cross_attn_matrices = layer(
-                    out_embeds, txt_embeds,
-                    tgt_key_padding_mask=obj_masks.logical_not(),
-                    memory_key_padding_mask=txt_masks.logical_not(),
-                )
+                )  # , self_attn_matrices, cross_attn_matrices
 
             all_hidden_states.append(out_embeds)
-            all_self_attn_matrices.append(self_attn_matrices)
-            all_cross_attn_matrices.append(cross_attn_matrices)
+
+
+        # for i, layer in enumerate(self.layers):
+        #     if self.config.obj_loc_encoding == 'diff_all':
+        #         query_pos = self.loc_layers[i](obj_locs)
+        #         out_embeds = out_embeds + query_pos
+        #     else:
+        #         query_pos = self.loc_layers[0](obj_locs)
+        #         if self.config.obj_loc_encoding == 'same_all':
+        #             out_embeds = out_embeds + query_pos
+        #         else:
+        #             if i == 0:
+        #                 out_embeds = out_embeds + query_pos
+
+        #     if self.config.spatial_dec:
+        #         out_embeds, self_attn_matrices, cross_attn_matrices = layer(
+        #             out_embeds, txt_embeds, pairwise_locs,
+        #             tgt_key_padding_mask=obj_masks.logical_not(),
+        #             memory_key_padding_mask=txt_masks.logical_not(),
+        #         )
+        #     else:
+        #         out_embeds, self_attn_matrices, cross_attn_matrices = layer(
+        #             out_embeds, txt_embeds,
+        #             tgt_key_padding_mask=obj_masks.logical_not(),
+        #             memory_key_padding_mask=txt_masks.logical_not(),
+        #         )
+
+        #     all_hidden_states.append(out_embeds)
+        #     all_self_attn_matrices.append(self_attn_matrices)
+        #     all_cross_attn_matrices.append(cross_attn_matrices)
 
         outs = {
             'obj_embeds': out_embeds,

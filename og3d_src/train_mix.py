@@ -27,6 +27,7 @@ from parser import load_parser, parse_with_config
 from data.gtlabelpcd_dataset import GTLabelPcdDataset, gtlabelpcd_collate_fn
 
 from model.referit3d_net_mix import ReferIt3DNetMix
+import wandb
 
 
 
@@ -59,6 +60,11 @@ def main(opts):
     # torch.autograd.set_detect_anomaly(True)
 
     default_gpu, n_gpu, device = set_cuda(opts)
+    # run = wandb.init(
+    #     # Set the project where this run will be logged
+    #     project="mamba_vail3dref_test",
+    #     # Track hyperparameters and run metadata
+    # )
 
     if default_gpu:
         LOGGER.info(
@@ -211,6 +217,7 @@ def main(opts):
             loss_dict = {'loss/%s'%lk: lv.data.item() for lk, lv in losses.items()}
             for lk, lv in loss_dict.items():
                 avg_metrics[lk].update(lv, n=batch_size)
+            # wandb.log(loss_dict)
             TB_LOGGER.log_scalar_dict(loss_dict)
             TB_LOGGER.step()
 
@@ -238,6 +245,7 @@ def main(opts):
             output_model_file = model_saver.save(
                 model, epoch+1, optimizer=optimizer, save_latest_optim=True
             )
+            # wandb.log({"final_rel": val_log['acc/og3d'].avg})
             if val_log['acc/og3d'].avg > val_best_scores['acc/og3d']:
                 val_best_scores['acc/og3d'] = val_log['acc/og3d'].avg
                 val_best_scores['epoch'] = epoch + 1
