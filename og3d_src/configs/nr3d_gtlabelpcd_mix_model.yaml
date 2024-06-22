@@ -1,4 +1,4 @@
-output_dir: ../datasets/referit3d/exprs/gtpcds/exp01
+output_dir: /root/autodl-fs/output_model
 resume_files: null
 resume_student: false
 
@@ -9,7 +9,7 @@ rank: -1
 
 seed: 0
 num_epoch: 100
-batch_size: 64
+batch_size: 128
 weight_decay: 0.01
 optim: adamw
 learning_rate: 0.0005
@@ -68,15 +68,15 @@ model:
     distill_hiddens: 0.02
 
 dataset:
-  scan_dir: ../datasets/referit3d/scan_data
-  anno_file: ../datasets/referit3d/annotations/bert_tokenized/nr3d.jsonl
-  category_file:  ../datasets/referit3d/annotations/meta_data/scannetv2_raw_categories.json
+  scan_dir: /root/autodl-fs/vil3dref_dataset/referit3d/scan_data
+  anno_file: /root/autodl-fs/vil3dref_dataset/referit3d/annotations/bert_tokenized/nr3d.jsonl
+  category_file:  /root/autodl-fs/vil3dref_dataset/referit3d/annotations/meta_data/scannetv2_raw_categories.json
   # cat2vec_file: null
-  cat2vec_file: ../datasets/referit3d/annotations/meta_data/cat2glove42b.json
+  cat2vec_file: /root/autodl-fs/vil3dref_dataset/referit3d/annotations/meta_data/cat2glove42b.json
 
-  trn_scan_split: ../datasets/referit3d/annotations/splits/scannetv2_train.txt
-  val_scan_split: ../datasets/referit3d/annotations/splits/scannetv2_val.txt
-  tst_scan_split: ../datasets/referit3d/annotations/splits/scannetv2_test.txt
+  trn_scan_split: /root/autodl-fs/vil3dref_dataset/referit3d/annotations/splits/scannetv2_train.txt
+  val_scan_split: /root/autodl-fs/vil3dref_dataset/referit3d/annotations/splits/scannetv2_val.txt
+  tst_scan_split: /root/autodl-fs/vil3dref_dataset/referit3d/annotations/splits/scannetv2_test.txt
 
   num_points: 1024
   max_txt_len: 50
@@ -86,3 +86,8 @@ dataset:
 
     
 
+# configfile=configs/nr3d_gtlabelpcd_mix_model.yaml
+# python train_mix.py --config $configfile \
+#     --output_dir /root/autodl-fs/output_model/gtlabelpcd_mix/nr3d \
+#     --resume_files /root/autodl-fs/vil3dref_dataset/exprs_neurips22/pcd_clf_pre/ckpts/model_epoch_100.pt \
+#     /root/autodl-fs/vil3dref_dataset/exprs_neurips22/gtlabels/nr3d/ckpts/model_epoch_49.pt

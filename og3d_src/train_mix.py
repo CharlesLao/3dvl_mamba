@@ -27,7 +27,7 @@ from parser import load_parser, parse_with_config
 from data.gtlabelpcd_dataset import GTLabelPcdDataset, gtlabelpcd_collate_fn
 
 from model.referit3d_net_mix import ReferIt3DNetMix
-import wandb
+# import wandb
 
 
 

@@ -248,6 +248,7 @@ class TransformerSpatialDecoderLayer(TransformerDecoderLayer):
 
 
         tgt = tgt + self.dropout1(tgt2)
+        tgt2 = self.norm2(tgt)
         tgt2 = self.dropout1(tgt2)
         tgt2, cross_attn_matrices = self.multihead_attn(
             query=tgt2, key=memory,
@@ -375,8 +376,8 @@ class CMT(nn.Module):
         all_hidden_states = [out_embeds]
         all_self_attn_matrices, all_cross_attn_matrices = [], []
 
-        query_pos = self.loc_layers[0](obj_locs)
-        out_embeds = out_embeds + query_pos
+        # query_pos = self.loc_layers[0](obj_locs)
+        # out_embeds = out_embeds + query_pos
         for i, layer in enumerate(self.layers):
             if self.config.obj_loc_encoding == 'diff_all':
                 query_pos = self.loc_layers[i](obj_locs)
