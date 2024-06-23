@@ -62,7 +62,7 @@ def main(opts):
     default_gpu, n_gpu, device = set_cuda(opts)
     # run = wandb.init(
     #     # Set the project where this run will be logged
-    #     project="mamba_vail3dref_test",
+    #     project="mamba_vail3dref",
     #     # Track hyperparameters and run metadata
     # )
 
@@ -112,11 +112,11 @@ def main(opts):
             model.load_state_dict(checkpoint)
         print(
             'resume #params:', len(checkpoint), 
-            len([n for n in checkpoint.keys() if n in model.teacher_model.state_dict()]),
+            # len([n for n in checkpoint.keys() if n in model.teacher_model.state_dict()]),
             len([n for n in checkpoint.keys() if n in model.student_model.state_dict()]),
         )
         
-        model.teacher_model.load_state_dict(checkpoint, strict=False)
+        # model.teacher_model.load_state_dict(checkpoint, strict=False)
         if opts.resume_student:
             model.student_model.load_state_dict(checkpoint, strict=False)
         else:

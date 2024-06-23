@@ -58,7 +58,7 @@ class ReferIt3DNet(nn.Module):
                 num_attention_heads=12, type_vocab_size=2
             )
             self.txt_encoder = BertModel.from_pretrained(
-                'bert-base-uncased', config=txt_bert_config
+                '/root/autodl-fs/vil3dref_dataset/bert_base_uncased/', config=txt_bert_config
             )
         if self.config.txt_encoder.freeze:
             for p in self.txt_encoder.parameters():
